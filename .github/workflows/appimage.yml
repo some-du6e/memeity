@@ -1,0 +1,47 @@
+# Builds a Linux AppImage by hand (Actions > AppImage > Run workflow) and attaches it
+# to the run as an artifact. No secrets: without MEMEITY_GOOGLE_CLIENT_ID/SECRET the app
+# asks for your own Google OAuth client at first launch, and updater artifacts are off.
+name: AppImage
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [linux-appimage]
+
+jobs:
+  appimage:
+    # Oldest supported Ubuntu: the AppImage links against this glibc, so it runs on
+    # this distro and anything newer.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Tauri's Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+            patchelf libxdo-dev libssl-dev build-essential file libdbus-1-dev pkg-config
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - run: npm ci
+
+      - name: Build AppImage
+        run: >
+          ./node_modules/.bin/tauri build --bundles appimage
+          --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: memeity-appimage
+          path: src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
