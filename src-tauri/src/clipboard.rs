@@ -52,6 +52,18 @@ fn copy_image(path: &Path) -> Result<(), String> {
     with_retries(path, |cb| cb.set_image(image.clone()))
 }
 
+/// Linux: the app that copied something serves it to whoever pastes, and arboard stops
+/// serving (after trying to hand over to a clipboard manager, if there is one) as soon as
+/// its last `Clipboard` is dropped. Hold one for the life of the app, so a copied meme
+/// stays pasteable instead of vanishing the moment the copy finishes.
+#[cfg(target_os = "linux")]
+pub fn keep_serving() {
+    match arboard::Clipboard::new() {
+        Ok(clipboard) => std::mem::forget(clipboard),
+        Err(e) => log::warn!("no clipboard: {e}"),
+    }
+}
+
 /// Other apps (Win+V history, clipboard managers) briefly lock the clipboard while
 /// they read it, so a write can fail transiently. Retry a few times before giving up.
 fn with_retries(

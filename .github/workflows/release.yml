@@ -1,4 +1,4 @@
-# Builds installers for Windows and macOS (Apple Silicon + Intel) when a version tag
+# Builds installers for Windows, macOS (Apple Silicon + Intel) and Linux when a version tag
 # like v0.1.0 is pushed, and attaches them to a DRAFT GitHub Release. Review the draft,
 # then publish it: only published releases are offered by the in-app updater.
 #
@@ -51,6 +51,7 @@ jobs:
                 "- **Windows on ARM** (e.g. Snapdragon laptops): `memeity_*_arm64-setup.exe`",
                 "- **Mac (Apple Silicon):** `memeity_*_aarch64.dmg`",
                 "- **Mac (Intel):** `memeity_*_x64.dmg` (no text recognition: search by name, plus text read on your other devices)",
+                "- **Linux:** `memeity_*_amd64.AppImage` (Ubuntu 24.04, Fedora 39, Debian 13 or newer): make it executable, then run it",
                 "",
                 "The Mac builds are signed and notarized by Apple. The Windows builds aren't code-signed, so Windows may show \"Windows protected your PC\": click **More info → Run anyway**.",
               ].join("\n"),
@@ -75,6 +76,10 @@ jobs:
           # leaves out text recognition (the `ocr` feature). See src-tauri/src/ocr.rs.
           - platform: macos-latest
             args: --target x86_64-apple-darwin -- --no-default-features
+          # Linux AppImage. Built on 24.04: ONNX Runtime's prebuilt library (OCR) needs
+          # glibc 2.38+, so it runs on distros at least that new.
+          - platform: ubuntu-24.04
+            args: ""
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v5
@@ -111,6 +116,12 @@ jobs:
             echo "::error::Tag ${GITHUB_REF_NAME} doesn't match tauri.conf.json version $version"
             exit 1
           fi
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libdbus-1-dev
 
       - uses: actions/setup-node@v5
         with:

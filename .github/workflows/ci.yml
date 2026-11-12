@@ -1,5 +1,5 @@
-# Type-check, lint and test on both platforms memeity ships for (macOS also compiles
-# the Mac-only code). Runs on pull requests, before every release build (the Release
+# Type-check, lint and test on every platform memeity ships for (each also compiles its
+# platform-only code). Runs on pull requests, before every release build (the Release
 # workflow calls it), or by hand (Actions > CI > Run workflow). Not on plain commits.
 name: CI
 
@@ -18,10 +18,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, windows-11-arm, macos-latest]
+        os: [windows-latest, windows-11-arm, macos-latest, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libdbus-1-dev
 
       - uses: actions/setup-node@v5
         with:

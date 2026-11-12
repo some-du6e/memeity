@@ -623,6 +623,7 @@
 
   /** Platform-specific wording for shortcut hints (the handlers accept Ctrl or Cmd). */
   const isMac = navigator.userAgent.includes("Mac");
+  const isLinux = navigator.userAgent.includes("Linux");
   const MOD = isMac ? "⌘" : "Ctrl";
   const credentialStore = isMac
     ? "your macOS Keychain"
@@ -1279,8 +1280,9 @@
 
   const isUrl = (text: string) => /^https?:\/\/\S+$/i.test(text.trim());
 
-  async function addMemes(files: File[], urls: string[]) {
-    if (stage !== "ready" || (files.length === 0 && urls.length === 0)) return;
+  /** `clipboard`: also add whatever image or files are on the clipboard (Linux paste). */
+  async function addMemes(files: File[], urls: string[], clipboard = false) {
+    if (stage !== "ready" || (files.length === 0 && urls.length === 0 && !clipboard)) return;
     importing = true;
     const added: string[] = [];
     const duplicates: string[] = [];
@@ -1307,6 +1309,13 @@
     for (const url of urls) {
       try {
         await collect(await invoke<ImportResult>("import_url", { url }));
+      } catch (e) {
+        failures.push(String(e));
+      }
+    }
+    if (clipboard) {
+      try {
+        await collect(await invoke<ImportResult>("import_clipboard"));
       } catch (e) {
         failures.push(String(e));
       }
@@ -1346,6 +1355,10 @@
     } else if (isUrl(text)) {
       e.preventDefault();
       addMemes([], [text.trim()]);
+    } else if (isLinux && !text) {
+      // WebKitGTK leaves pasted images and files out of the event: read the clipboard natively.
+      e.preventDefault();
+      addMemes([], [], true);
     }
     // Anything else (plain text) pastes into the search box as usual.
   }

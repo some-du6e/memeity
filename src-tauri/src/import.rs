@@ -231,6 +231,43 @@ pub async fn import_url(app: AppHandle, url: String) -> Result<ImportResult, Str
     Ok(result)
 }
 
+/// Ctrl+V on Linux: WebKitGTK's paste event carries no images or files, so the pane asks
+/// for whatever is on the clipboard instead: files (copied in a file manager) or an image.
+/// Nothing usable there (text, say) adds nothing.
+#[tauri::command(async)]
+pub fn import_clipboard(app: AppHandle) -> Result<ImportResult, String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| format!("Couldn't read the clipboard: {e}"))?;
+    let mut result = ImportResult::default();
+    let mut failure = None;
+    if let Ok(files) = clipboard.get().file_list() {
+        for file in files {
+            let added = std::fs::read(&file)
+                .map_err(|e| format!("Couldn't read {}: {e}", file.display()))
+                .and_then(|bytes| add_bytes(&app, file.file_name().and_then(|n| n.to_str()), &bytes));
+            match added {
+                Ok(r) => {
+                    result.added.extend(r.added);
+                    result.duplicates.extend(r.duplicates);
+                }
+                Err(e) => failure = Some(e),
+            }
+        }
+    } else if let Ok(image) = clipboard.get_image() {
+        let pixels = image::RgbaImage::from_raw(image.width as u32, image.height as u32, image.bytes.into_owned())
+            .ok_or("The image on the clipboard is damaged.")?;
+        let mut png = Vec::new();
+        pixels
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .map_err(|e| format!("Couldn't encode the pasted image: {e}"))?;
+        result = add_bytes(&app, None, &png)?;
+    }
+    finish(&app, &result);
+    match failure {
+        Some(e) if result.added.is_empty() && result.duplicates.is_empty() => Err(e),
+        _ => Ok(result),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

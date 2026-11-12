@@ -6,6 +6,8 @@ mod config;
 mod dupes;
 mod fuzzytext;
 mod google;
+#[cfg(target_os = "linux")]
+mod gtkdrag;
 mod import;
 mod index;
 mod insert;
@@ -310,10 +312,12 @@ fn pane(app: &AppHandle) -> Option<WebviewWindow> {
 fn position_pane(app: &AppHandle, win: &WebviewWindow) {
     let Ok(cursor) = app.cursor_position() else { return };
     let Ok(Some(monitor)) = app.monitor_from_point(cursor.x, cursor.y) else { return };
-    let Ok(size) = win.outer_size() else { return };
+    // The size it's being set to, not `outer_size()`: on Linux a resize lands later, so
+    // right after `lock_size` that would still be the old size.
+    let size = pane_size(app, win).to_physical::<i32>(monitor.scale_factor());
     let (mp, ms) = (monitor.position(), monitor.size());
-    let x = mp.x + (ms.width as i32 - size.width as i32) / 2;
-    let y = mp.y + (ms.height as i32 - size.height as i32) / 3;
+    let x = mp.x + (ms.width as i32 - size.width) / 2;
+    let y = mp.y + (ms.height as i32 - size.height) / 3;
     let _ = win.set_position(PhysicalPosition::new(x, y));
 }
 
@@ -360,10 +364,12 @@ fn set_editing(app: AppHandle, active: bool) {
     app.state::<AppState>().editing.store(active, Ordering::SeqCst);
     let Some(win) = pane(&app) else { return };
     lock_size(&app, &win);
-    if let (Ok(Some(monitor)), Ok(size)) = (win.current_monitor(), win.outer_size()) {
+    if let Ok(Some(monitor)) = win.current_monitor() {
+        // Not `outer_size()`, which on Linux is still the old size here (see position_pane).
+        let size = pane_size(&app, &win).to_physical::<i32>(monitor.scale_factor());
         let area = monitor.work_area();
-        let x = area.position.x + (area.size.width as i32 - size.width as i32) / 2;
-        let y = area.position.y + (area.size.height as i32 - size.height as i32) / if active { 2 } else { 3 };
+        let x = area.position.x + (area.size.width as i32 - size.width) / 2;
+        let y = area.position.y + (area.size.height as i32 - size.height) / if active { 2 } else { 3 };
         let _ = win.set_position(PhysicalPosition::new(x, y));
     }
 }
@@ -1082,33 +1088,32 @@ async fn drag_meme(app: AppHandle, window: WebviewWindow, path: String) -> Resul
     .await
     .map_err(|e| e.to_string())??;
 
-    // The OS drag has to start on the main thread (macOS returns right away and the drag
-    // carries on; Windows returns once it's over).
+    // The OS drag has to start on the main thread (macOS and Linux return right away and
+    // the drag carries on; Windows returns once it's over).
     let (tx, rx) = tokio::sync::oneshot::channel();
     let handle = app.clone();
     app.run_on_main_thread(move || {
-        let done = handle.clone();
-        // Linux: the drag crate takes the GTK window, not Tauri's.
-        #[cfg(target_os = "linux")]
-        let window = match window.gtk_window() {
-            Ok(w) => w,
-            Err(e) => {
-                let _ = tx.send(Err(format!("Couldn't start dragging: {e}")));
-                return;
+        let on_end = move |dropped: bool| {
+            if dropped {
+                record_use(&handle, &path);
             }
+            let _ = handle.emit("drag-out-ended", ());
         };
+        // Linux has its own GTK drag: the drag crate's never delivers the file there.
+        #[cfg(target_os = "linux")]
+        let result = window
+            .gtk_window()
+            .map_err(|e| e.to_string())
+            .and_then(|w| gtkdrag::start(&w, &file, &icon, on_end));
+        #[cfg(not(target_os = "linux"))]
         let result = drag::start_drag(
             &window,
             drag::DragItem::Files(vec![file]),
             drag::Image::Raw(icon),
-            move |result, _| {
-                if matches!(result, drag::DragResult::Dropped) {
-                    record_use(&done, &path);
-                }
-                let _ = done.emit("drag-out-ended", ());
-            },
+            move |result, _| on_end(matches!(result, drag::DragResult::Dropped)),
             drag::Options { skip_animatation_on_cancel_or_failure: false, mode: drag::DragMode::Copy },
-        );
+        )
+        .map_err(|e| e.to_string());
         let _ = tx.send(result.map_err(|e| format!("Couldn't start dragging: {e}")));
     })
     .map_err(|e| e.to_string())?;
@@ -1559,6 +1564,7 @@ pub fn run() {
             settings::open_link,
             import::import_bytes,
             import::import_url,
+            import::import_clipboard,
             set_dragging,
             set_editing,
             read_meme,
@@ -1632,6 +1638,8 @@ pub fn run() {
             setup_tray(&handle)?;
             #[cfg(windows)]
             winhook::init(&handle);
+            #[cfg(target_os = "linux")]
+            clipboard::keep_serving();
             settings::register_initial(&handle);
 
             // Launcher behaviour: hide on blur, and closing just hides.

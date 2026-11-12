@@ -27,7 +27,9 @@ tauri-plugin-opener = "2"
 # Google Drive sync
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "http2", "charset"] }
 tokio = { version = "1", features = ["net", "time", "io-util", "sync", "macros", "rt", "fs"] }
-keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native"] }
+# Linux: the Secret Service (GNOME Keyring, KWallet) keeps the sign-in across reboots;
+# kernel keyutils alone ("linux-native") is in-memory only, so it'd sign you out each boot.
+keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native-sync-persistent", "crypto-rust"] }
 sha2 = "0.10"
 md-5 = "0.10"
 base64 = "0.22"
@@ -50,10 +52,17 @@ oar-ocr = { version = "0.10", optional = true }
 tauri-plugin-updater = "2"
 log = "0.4"
 tauri-plugin-log = "2"
+tauri-plugin-single-instance = "2"
+
 # Dragging memes out of the pane into other apps (CrabNebula's drag, without its Tauri
 # plugin: that would let the webview drag any file; our command checks the library).
+# Not on Linux, where its GTK drag never delivers the file: see src/gtkdrag.rs.
+[target.'cfg(not(target_os = "linux"))'.dependencies]
 drag = "2.1.1"
-tauri-plugin-single-instance = "2"
+
+# Linux: dragging memes out (src/gtkdrag.rs). Same version Tauri itself uses.
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
 
 [target.'cfg(windows)'.dependencies]
 # Instant insert: save/restore the clipboard and refocus the previous app.
