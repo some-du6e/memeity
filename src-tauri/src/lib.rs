@@ -1088,6 +1088,15 @@ async fn drag_meme(app: AppHandle, window: WebviewWindow, path: String) -> Resul
     let handle = app.clone();
     app.run_on_main_thread(move || {
         let done = handle.clone();
+        // Linux: the drag crate takes the GTK window, not Tauri's.
+        #[cfg(target_os = "linux")]
+        let window = match window.gtk_window() {
+            Ok(w) => w,
+            Err(e) => {
+                let _ = tx.send(Err(format!("Couldn't start dragging: {e}")));
+                return;
+            }
+        };
         let result = drag::start_drag(
             &window,
             drag::DragItem::Files(vec![file]),
