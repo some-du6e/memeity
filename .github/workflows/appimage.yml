@@ -10,9 +10,9 @@ on:
 
 jobs:
   appimage:
-    # Oldest supported Ubuntu: the AppImage links against this glibc, so it runs on
-    # this distro and anything newer.
-    runs-on: ubuntu-22.04
+    # The AppImage links against this distro's glibc, so it runs here and on anything
+    # newer. Not 22.04: ONNX Runtime's prebuilt static library (OCR) needs glibc 2.38+.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
